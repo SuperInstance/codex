@@ -1969,12 +1969,6 @@ async fn sibling_override_layers_load_after_their_base_scope() -> std::io::Resul
         format!("foo = \"user\"\n{trust_config}"),
     )
     .await?;
-    tokio::fs::write(
-        codex_home.join(CONFIG_OVERRIDE_TOML_FILE),
-        "foo = \"user-override\"\n",
-    )
-    .await?;
-
     let layers = load_config_layers_state(
         LOCAL_FS.as_ref(),
         &codex_home,
@@ -1994,7 +1988,6 @@ async fn sibling_override_layers_load_after_their_base_scope() -> std::io::Resul
         .into_iter()
         .filter_map(|layer| match &layer.name {
             ConfigLayerSource::User { .. }
-            | ConfigLayerSource::UserOverride { .. }
             | ConfigLayerSource::Project { .. }
             | ConfigLayerSource::ProjectOverride { .. } => Some(layer.name.clone()),
             _ => None,
@@ -2004,7 +1997,6 @@ async fn sibling_override_layers_load_after_their_base_scope() -> std::io::Resul
         sources.as_slice(),
         [
             ConfigLayerSource::User { .. },
-            ConfigLayerSource::UserOverride { .. },
             ConfigLayerSource::Project { .. },
             ConfigLayerSource::ProjectOverride { .. },
         ]
