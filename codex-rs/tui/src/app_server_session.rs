@@ -670,6 +670,7 @@ impl AppServerSession {
                     thread_id: thread_id.to_string(),
                     input: items,
                     responsesapi_client_metadata: None,
+                    additional_context: None,
                     environments: None,
                     cwd: Some(cwd),
                     runtime_workspace_roots: Some(
@@ -735,6 +736,7 @@ impl AppServerSession {
                     thread_id: thread_id.to_string(),
                     input: items,
                     responsesapi_client_metadata: None,
+                    additional_context: None,
                     expected_turn_id: turn_id,
                 },
             })
