@@ -180,6 +180,7 @@ fn event_msg_persistence_mode(ev: &EventMsg) -> Option<EventPersistenceMode> {
         | EventMsg::RealtimeConversationClosed(_)
         | EventMsg::ModelReroute(_)
         | EventMsg::ModelVerification(_)
+        | EventMsg::TurnProtectionResult(_)
         | EventMsg::AgentReasoningSectionBreak(_)
         | EventMsg::RawResponseItem(_)
         | EventMsg::SessionConfigured(_)

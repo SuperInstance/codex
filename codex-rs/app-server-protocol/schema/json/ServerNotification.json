@@ -2655,6 +2655,28 @@
         }
       ]
     },
+    "ProtectionClassifierResult": {
+      "properties": {
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "modapiScores": {
+          "additionalProperties": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "labels",
+        "modapiScores"
+      ],
+      "type": "object"
+    },
     "RateLimitReachedType": {
       "enum": [
         "rate_limit_reached",
@@ -4931,6 +4953,25 @@
       ],
       "type": "object"
     },
+    "TurnProtectionResultNotification": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "wellbeing": {
+          "$ref": "#/definitions/WellbeingProtectionResult"
+        }
+      },
+      "required": [
+        "threadId",
+        "turnId",
+        "wellbeing"
+      ],
+      "type": "object"
+    },
     "TurnStartedNotification": {
       "properties": {
         "threadId": {
@@ -5216,6 +5257,21 @@
           "type": "object"
         }
       ]
+    },
+    "WellbeingProtectionResult": {
+      "properties": {
+        "generation": {
+          "$ref": "#/definitions/ProtectionClassifierResult"
+        },
+        "prompt": {
+          "$ref": "#/definitions/ProtectionClassifierResult"
+        }
+      },
+      "required": [
+        "generation",
+        "prompt"
+      ],
+      "type": "object"
     },
     "WindowsSandboxSetupCompletedNotification": {
       "properties": {
@@ -6217,6 +6273,26 @@
         "params"
       ],
       "title": "Model/verificationNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "turn/protectionResult"
+          ],
+          "title": "Turn/protectionResultNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TurnProtectionResultNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Turn/protectionResultNotification",
       "type": "object"
     },
     {
