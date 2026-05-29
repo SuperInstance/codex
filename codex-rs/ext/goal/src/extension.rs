@@ -8,6 +8,7 @@ use codex_extension_api::ExtensionData;
 use codex_extension_api::ExtensionEventSink;
 use codex_extension_api::ExtensionRegistryBuilder;
 use codex_extension_api::ThreadLifecycleContributor;
+use codex_extension_api::ThreadResumeInput;
 use codex_extension_api::ThreadStartInput;
 use codex_extension_api::TokenUsageContributor;
 use codex_extension_api::ToolCallOutcome;
@@ -16,16 +17,23 @@ use codex_extension_api::ToolFinishInput;
 use codex_extension_api::ToolLifecycleContributor;
 use codex_extension_api::ToolLifecycleFuture;
 use codex_extension_api::TurnAbortInput;
+use codex_extension_api::TurnErrorInput;
 use codex_extension_api::TurnLifecycleContributor;
 use codex_extension_api::TurnStartInput;
 use codex_extension_api::TurnStopInput;
+use codex_otel::MetricsClient;
 use codex_protocol::ThreadId;
+use codex_protocol::protocol::CodexErrorInfo;
+use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::ThreadGoalStatus;
 use codex_protocol::protocol::TokenUsageInfo;
 
 use crate::accounting::BudgetLimitedGoalDisposition;
 use crate::accounting::GoalAccountingState;
 use crate::events::GoalEventEmitter;
+use crate::metrics::GoalMetrics;
+use crate::runtime::GoalRuntimeConfig;
 use crate::runtime::GoalRuntimeHandle;
 use crate::spec::UPDATE_GOAL_TOOL_NAME;
 use crate::steering::budget_limit_steering_item;
@@ -46,6 +54,7 @@ impl GoalExtensionConfig {
 pub struct GoalExtension<C> {
     state_dbs: Arc<codex_state::StateRuntime>,
     event_emitter: GoalEventEmitter,
+    metrics: GoalMetrics,
     thread_manager: Weak<ThreadManager>,
     goals_enabled: Arc<dyn Fn(&C) -> bool + Send + Sync>,
 }
@@ -60,12 +69,14 @@ impl<C> GoalExtension<C> {
     pub(crate) fn new_with_host_capabilities(
         state_dbs: Arc<codex_state::StateRuntime>,
         event_sink: Arc<dyn ExtensionEventSink>,
+        metrics_client: Option<MetricsClient>,
         thread_manager: Weak<ThreadManager>,
         goals_enabled: impl Fn(&C) -> bool + Send + Sync + 'static,
     ) -> Self {
         Self {
             state_dbs,
             event_emitter: GoalEventEmitter::new(event_sink),
+            metrics: GoalMetrics::new(metrics_client),
             thread_manager,
             goals_enabled: Arc::new(goals_enabled),
         }
@@ -79,6 +90,11 @@ where
 {
     async fn on_thread_start(&self, input: ThreadStartInput<'_, C>) {
         let enabled = (self.goals_enabled)(input.config);
+        let tools_available_for_thread = input.persistent_thread_state_available
+            && !matches!(
+                input.session_source,
+                SessionSource::SubAgent(SubAgentSource::Review)
+            );
         input
             .thread_store
             .insert(GoalExtensionConfig::from_enabled(enabled));
@@ -93,12 +109,29 @@ where
                 thread_id,
                 Arc::clone(&self.state_dbs),
                 self.event_emitter.clone(),
+                self.metrics.clone(),
                 self.thread_manager.clone(),
                 accounting_state,
-                enabled,
+                GoalRuntimeConfig {
+                    enabled,
+                    tools_available_for_thread,
+                },
             )
         });
         runtime.set_enabled(enabled);
+    }
+
+    async fn on_thread_resume(&self, input: ThreadResumeInput<'_>) {
+        let Some(runtime) = goal_runtime_handle(input.thread_store) else {
+            return;
+        };
+
+        if let Err(err) = runtime.restore_after_resume().await {
+            tracing::warn!(
+                "failed to restore goal runtime after thread resume for {}: {err}",
+                runtime.thread_id()
+            );
+        }
     }
 }
 
@@ -217,6 +250,22 @@ where
         }
         runtime.accounting_state().finish_turn(turn_id);
     }
+
+    async fn on_turn_error(&self, input: TurnErrorInput<'_>) {
+        if input.error != CodexErrorInfo::UsageLimitExceeded {
+            return;
+        }
+        let Some(runtime) = goal_runtime_handle(input.thread_store) else {
+            return;
+        };
+
+        if let Err(err) = runtime
+            .usage_limit_active_goal_for_turn(input.turn_id)
+            .await
+        {
+            tracing::warn!("failed to usage-limit active goal after usage-limit error: {err}");
+        }
+    }
 }
 
 #[async_trait]
@@ -310,7 +359,7 @@ where
         let Some(runtime) = goal_runtime_handle(thread_store) else {
             return Vec::new();
         };
-        if !runtime.is_enabled() {
+        if !runtime.tools_visible() {
             return Vec::new();
         }
 
@@ -320,18 +369,21 @@ where
                 Arc::clone(&self.state_dbs),
                 runtime.accounting_state(),
                 self.event_emitter.clone(),
+                self.metrics.clone(),
             )),
             Arc::new(GoalToolExecutor::create(
                 runtime.thread_id(),
                 Arc::clone(&self.state_dbs),
                 runtime.accounting_state(),
                 self.event_emitter.clone(),
+                self.metrics.clone(),
             )),
             Arc::new(GoalToolExecutor::update(
                 runtime.thread_id(),
                 Arc::clone(&self.state_dbs),
                 runtime.accounting_state(),
                 self.event_emitter.clone(),
+                self.metrics.clone(),
             )),
         ]
     }
@@ -340,6 +392,7 @@ where
 pub fn install_with_backend<C>(
     registry: &mut ExtensionRegistryBuilder<C>,
     state_dbs: Arc<codex_state::StateRuntime>,
+    metrics_client: Option<MetricsClient>,
     thread_manager: Weak<ThreadManager>,
     goals_enabled: impl Fn(&C) -> bool + Send + Sync + 'static,
 ) where
@@ -348,6 +401,7 @@ pub fn install_with_backend<C>(
     let extension = Arc::new(GoalExtension::new_with_host_capabilities(
         state_dbs,
         registry.event_sink(),
+        metrics_client,
         thread_manager,
         goals_enabled,
     ));

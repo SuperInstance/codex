@@ -502,7 +502,7 @@ pub enum NetworkDomainPermission {
 #[ts(export_to = "v2/")]
 pub enum NetworkUnixSocketPermission {
     Allow,
-    None,
+    Deny,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
