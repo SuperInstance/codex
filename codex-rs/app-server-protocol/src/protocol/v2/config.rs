@@ -350,7 +350,6 @@ pub struct ConfigReadResponse {
     #[experimental(nested)]
     pub config: Config,
     pub origins: HashMap<String, ConfigLayerMetadata>,
-    pub user_config_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layers: Option<Vec<ConfigLayer>>,
 }
