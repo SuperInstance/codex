@@ -312,6 +312,7 @@ impl App {
                     call_id: params.item_id.clone(),
                     reason: params.reason.clone(),
                     permissions: params.permissions.clone().into(),
+                    workspace_mutation: params.workspace_mutation.clone().map(Into::into),
                 }),
             ),
             _ => None,

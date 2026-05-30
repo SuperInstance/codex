@@ -54,6 +54,8 @@ use codex_features::Features;
 use codex_protocol::ThreadId;
 use codex_protocol::request_permissions::PermissionGrantScope;
 use codex_protocol::request_permissions::RequestPermissionProfile;
+use codex_protocol::request_permissions::WorkspaceMutationApprovalRequest;
+use codex_protocol::request_permissions::WorkspaceMutationOperation;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
@@ -86,6 +88,7 @@ pub(crate) enum ApprovalRequest {
         call_id: String,
         reason: Option<String>,
         permissions: RequestPermissionProfile,
+        workspace_mutation: Option<WorkspaceMutationApprovalRequest>,
     },
     ApplyPatch {
         thread_id: ThreadId,
@@ -258,9 +261,22 @@ impl ApprovalOverlay {
                     },
                 ),
             ),
-            ApprovalRequest::Permissions { .. } => (
-                permissions_options(approval_keymap),
-                "Would you like to grant these permissions?".to_string(),
+            ApprovalRequest::Permissions {
+                workspace_mutation, ..
+            } => (
+                permissions_options(approval_keymap, workspace_mutation.is_some()),
+                workspace_mutation.as_ref().map_or_else(
+                    || "Would you like to grant these permissions?".to_string(),
+                    |workspace_mutation| match workspace_mutation.operation {
+                        WorkspaceMutationOperation::SetWorkingDirectory => {
+                            "Would you like to switch this session's working directory?".to_string()
+                        }
+                        WorkspaceMutationOperation::AddWorkspaceRoot => {
+                            "Would you like to add a directory to this session's workspace?"
+                                .to_string()
+                        }
+                    },
+                ),
             ),
             ApprovalRequest::ApplyPatch { .. } => (
                 patch_options(approval_keymap),
@@ -715,6 +731,7 @@ fn build_header(request: &ApprovalRequest) -> Box<dyn Renderable> {
             thread_label,
             reason,
             permissions,
+            workspace_mutation,
             ..
         } => {
             let mut header: Vec<Line<'static>> = Vec::new();
@@ -725,7 +742,22 @@ fn build_header(request: &ApprovalRequest) -> Box<dyn Renderable> {
                 ]));
                 header.push(Line::from(""));
             }
-            if let Some(reason) = reason {
+            if let Some(workspace_mutation) = workspace_mutation {
+                header.push(Line::from(vec![
+                    "Directory: ".into(),
+                    workspace_mutation
+                        .target
+                        .as_path()
+                        .display()
+                        .to_string()
+                        .cyan(),
+                ]));
+                header.push(Line::from(""));
+                header.push(
+                    "This grants write access to the directory for the rest of the session.".into(),
+                );
+                header.push(Line::from(""));
+            } else if let Some(reason) = reason {
                 header.push(Line::from(vec!["Reason: ".into(), reason.clone().italic()]));
                 header.push(Line::from(""));
             }
@@ -1037,13 +1069,34 @@ fn patch_options(keymap: &ApprovalKeymap) -> Vec<ApprovalOption> {
     ]
 }
 
-fn permissions_options(keymap: &ApprovalKeymap) -> Vec<ApprovalOption> {
+fn permissions_options(keymap: &ApprovalKeymap, session_scope_only: bool) -> Vec<ApprovalOption> {
     let deny_shortcuts = keymap
         .deny
         .iter()
         .copied()
         .filter(|shortcut| shortcut.parts() != (KeyCode::Esc, KeyModifiers::NONE))
         .collect();
+
+    if session_scope_only {
+        let mut approve_shortcuts = keymap.approve.clone();
+        for shortcut in &keymap.approve_for_session {
+            if !approve_shortcuts.contains(shortcut) {
+                approve_shortcuts.push(*shortcut);
+            }
+        }
+        return vec![
+            ApprovalOption {
+                label: "Yes, update this session's workspace".to_string(),
+                decision: ApprovalDecision::Permissions(PermissionsDecision::GrantForSession),
+                shortcuts: approve_shortcuts,
+            },
+            ApprovalOption {
+                label: "No, keep the current workspace".to_string(),
+                decision: ApprovalDecision::Permissions(PermissionsDecision::Deny),
+                shortcuts: deny_shortcuts,
+            },
+        ];
+    }
 
     vec![
         ApprovalOption {
@@ -1237,7 +1290,25 @@ mod tests {
                     Some(vec![absolute_path("/tmp/out.txt")]),
                 )),
             },
+            workspace_mutation: None,
         }
+    }
+
+    fn make_workspace_mutation_permissions_request() -> ApprovalRequest {
+        let mut request = make_permissions_request();
+        let ApprovalRequest::Permissions {
+            workspace_mutation, ..
+        } = &mut request
+        else {
+            unreachable!("permissions request helper returned another request type");
+        };
+        *workspace_mutation = Some(WorkspaceMutationApprovalRequest {
+            operation:
+                codex_protocol::request_permissions::WorkspaceMutationOperation::AddWorkspaceRoot,
+            target: absolute_path("/tmp/out.txt"),
+            resulting_workspace_roots: vec![absolute_path("/tmp/out.txt")],
+        });
+        request
     }
 
     fn make_elicitation_request() -> ApprovalRequest {
@@ -1787,10 +1858,11 @@ mod tests {
     #[test]
     fn permissions_options_use_expected_labels() {
         let keymap = crate::keymap::RuntimeKeymap::defaults();
-        let labels: Vec<String> = permissions_options(&keymap.approval)
-            .into_iter()
-            .map(|option| option.label)
-            .collect();
+        let labels: Vec<String> =
+            permissions_options(&keymap.approval, /*session_scope_only*/ false)
+                .into_iter()
+                .map(|option| option.label)
+                .collect();
         assert_eq!(
             labels,
             vec![
@@ -1798,6 +1870,23 @@ mod tests {
                 "Yes, grant for this turn with strict auto review".to_string(),
                 "Yes, grant these permissions for this session".to_string(),
                 "No, continue without permissions".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_mutation_permissions_options_only_offer_session_scope_or_deny() {
+        let keymap = crate::keymap::RuntimeKeymap::defaults();
+        let labels: Vec<String> =
+            permissions_options(&keymap.approval, /*session_scope_only*/ true)
+                .into_iter()
+                .map(|option| option.label)
+                .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "Yes, update this session's workspace".to_string(),
+                "No, keep the current workspace".to_string(),
             ]
         );
     }
@@ -1881,6 +1970,36 @@ mod tests {
         assert!(
             saw_op,
             "expected permission approval decision to emit a session-scoped response"
+        );
+    }
+
+    #[test]
+    fn workspace_mutation_permissions_approve_shortcut_submits_session_scope() {
+        let (tx, mut rx) = unbounded_channel::<AppEvent>();
+        let tx = AppEventSender::new(tx);
+        let mut view = make_overlay(
+            make_workspace_mutation_permissions_request(),
+            tx,
+            Features::with_defaults(),
+        );
+
+        view.handle_key_event(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+
+        let mut saw_op = false;
+        while let Ok(ev) = rx.try_recv() {
+            if let AppEvent::SubmitThreadOp {
+                op: Op::RequestPermissionsResponse { response, .. },
+                ..
+            } = ev
+            {
+                assert_eq!(response.scope, PermissionGrantScope::Session);
+                saw_op = true;
+                break;
+            }
+        }
+        assert!(
+            saw_op,
+            "expected workspace mutation approval to emit a session-scoped response"
         );
     }
 
@@ -2047,6 +2166,21 @@ mod tests {
         let view = make_overlay(make_permissions_request(), tx, Features::with_defaults());
         assert_snapshot!(
             "approval_overlay_permissions_prompt",
+            normalize_snapshot_paths(render_overlay_lines(&view, /*width*/ 120))
+        );
+    }
+
+    #[test]
+    fn workspace_mutation_permissions_prompt_snapshot() {
+        let (tx, _rx) = unbounded_channel::<AppEvent>();
+        let tx = AppEventSender::new(tx);
+        let view = make_overlay(
+            make_workspace_mutation_permissions_request(),
+            tx,
+            Features::with_defaults(),
+        );
+        assert_snapshot!(
+            "approval_overlay_workspace_mutation_permissions_prompt",
             normalize_snapshot_paths(render_overlay_lines(&view, /*width*/ 120))
         );
     }

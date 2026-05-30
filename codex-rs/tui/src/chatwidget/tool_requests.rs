@@ -438,6 +438,7 @@ impl ChatWidget {
             call_id: ev.call_id,
             reason: ev.reason,
             permissions: ev.permissions,
+            workspace_mutation: ev.workspace_mutation,
         };
         self.bottom_pane
             .push_approval_request(request, &self.config.features);

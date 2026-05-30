@@ -2512,6 +2512,10 @@ impl ThreadRequestProcessor {
         };
 
         let history_cwd = thread_history.session_cwd();
+        let runtime_workspace_replay_overrides = RuntimeWorkspaceReplayOverrides {
+            preserve_cwd: cwd.is_some(),
+            preserve_workspace_roots: runtime_workspace_roots.is_some(),
+        };
         let mut typesafe_overrides = self.build_thread_config_overrides(
             model,
             model_provider,
@@ -2552,12 +2556,13 @@ impl ThreadRequestProcessor {
 
         match self
             .thread_manager
-            .resume_thread_with_history(
+            .resume_thread_with_history_preserving_runtime_workspace_overrides(
                 config.clone(),
                 thread_history,
                 self.auth_manager.clone(),
                 /*persist_extended_history*/ false,
                 self.request_trace_context(&request_id).await,
+                runtime_workspace_replay_overrides,
             )
             .await
         {
@@ -3213,6 +3218,10 @@ impl ThreadRequestProcessor {
                 ))
             })?;
         let history_cwd = Some(source_thread.cwd.clone());
+        let runtime_workspace_replay_overrides = RuntimeWorkspaceReplayOverrides {
+            preserve_cwd: cwd.is_some(),
+            preserve_workspace_roots: runtime_workspace_roots.is_some(),
+        };
 
         // Persist Windows sandbox mode.
         let mut cli_overrides = cli_overrides.unwrap_or_default();
@@ -3268,7 +3277,7 @@ impl ThreadRequestProcessor {
             ..
         } = self
             .thread_manager
-            .fork_thread_from_history(
+            .fork_thread_from_history_preserving_runtime_workspace_overrides(
                 ForkSnapshot::Interrupted,
                 config,
                 InitialHistory::Resumed(ResumedHistory {
@@ -3279,6 +3288,7 @@ impl ThreadRequestProcessor {
                 thread_source.map(Into::into),
                 /*persist_extended_history*/ false,
                 self.request_trace_context(&request_id).await,
+                runtime_workspace_replay_overrides,
             )
             .await
             .map_err(|err| match err {
