@@ -88,12 +88,21 @@ async fn write_project_hook_config(
     foo: Option<&str>,
     command: &str,
 ) -> std::io::Result<()> {
+    write_project_hook_config_file(dot_codex_folder, CONFIG_TOML_FILE, foo, command).await
+}
+
+async fn write_project_hook_config_file(
+    dot_codex_folder: &Path,
+    config_file: &str,
+    foo: Option<&str>,
+    command: &str,
+) -> std::io::Result<()> {
     tokio::fs::create_dir_all(dot_codex_folder).await?;
     let foo = foo
         .map(|value| format!("foo = \"{value}\"\n\n"))
         .unwrap_or_default();
     tokio::fs::write(
-        dot_codex_folder.join(CONFIG_TOML_FILE),
+        dot_codex_folder.join(config_file),
         format!(
             r#"{foo}[hooks]
 
@@ -2113,6 +2122,34 @@ async fn linked_worktree_project_layers_keep_worktree_config_but_use_root_repo_h
         "echo worktree child hook",
     )
     .await?;
+    write_project_hook_config_file(
+        &repo_root.join(".codex"),
+        CONFIG_OVERRIDE_TOML_FILE,
+        Some("repo-root-override"),
+        "echo repo root override hook",
+    )
+    .await?;
+    write_project_hook_config_file(
+        &repo_child.join(".codex"),
+        CONFIG_OVERRIDE_TOML_FILE,
+        Some("repo-child-override"),
+        "echo repo child override hook",
+    )
+    .await?;
+    write_project_hook_config_file(
+        &worktree_root.join(".codex"),
+        CONFIG_OVERRIDE_TOML_FILE,
+        Some("worktree-root-override"),
+        "echo worktree root override hook",
+    )
+    .await?;
+    write_project_hook_config_file(
+        &worktree_child.join(".codex"),
+        CONFIG_OVERRIDE_TOML_FILE,
+        Some("worktree-child-override"),
+        "echo worktree child override hook",
+    )
+    .await?;
 
     let codex_home = tmp.path().join("home");
     tokio::fs::create_dir_all(&codex_home).await?;
@@ -2175,6 +2212,47 @@ async fn linked_worktree_project_layers_keep_worktree_config_but_use_root_repo_h
     assert_eq!(
         project_hook_command(project_layers[1]),
         Some("echo repo root hook")
+    );
+
+    let project_override_layers: Vec<_> = layers
+        .layers_high_to_low()
+        .into_iter()
+        .filter(|layer| matches!(layer.name, ConfigLayerSource::ProjectOverride { .. }))
+        .collect();
+    assert_eq!(project_override_layers.len(), 2);
+    assert_eq!(
+        project_override_layers[0].hooks_config_folder(),
+        Some(AbsolutePathBuf::from_absolute_path(
+            repo_child.join(".codex")
+        )?)
+    );
+    assert_eq!(
+        project_override_layers[1].hooks_config_folder(),
+        Some(AbsolutePathBuf::from_absolute_path(
+            repo_root.join(".codex")
+        )?)
+    );
+    assert_eq!(
+        project_override_layers[0]
+            .config
+            .get("foo")
+            .and_then(TomlValue::as_str),
+        Some("worktree-child-override")
+    );
+    assert_eq!(
+        project_hook_command(project_override_layers[0]),
+        Some("echo repo child override hook")
+    );
+    assert_eq!(
+        project_override_layers[1]
+            .config
+            .get("foo")
+            .and_then(TomlValue::as_str),
+        Some("worktree-root-override")
+    );
+    assert_eq!(
+        project_hook_command(project_override_layers[1]),
+        Some("echo repo root override hook")
     );
 
     Ok(())

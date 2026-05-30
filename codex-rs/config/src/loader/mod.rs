@@ -882,15 +882,17 @@ fn project_override_layer_entry(
     dot_codex_folder: &AbsolutePathBuf,
     config: TomlValue,
     disabled_reason: Option<String>,
+    hooks_config_folder_override: Option<AbsolutePathBuf>,
 ) -> ConfigLayerEntry {
     let source = ConfigLayerSource::ProjectOverride {
         dot_codex_folder: dot_codex_folder.clone(),
     };
-    if let Some(reason) = disabled_reason {
+    let entry = if let Some(reason) = disabled_reason {
         ConfigLayerEntry::new_disabled(source, config, reason)
     } else {
         ConfigLayerEntry::new(source, config)
-    }
+    };
+    entry.with_hooks_config_folder_override(hooks_config_folder_override)
 }
 
 fn sanitize_project_config(config: &mut TomlValue) -> Vec<String> {
@@ -1258,13 +1260,14 @@ async fn load_project_layers(
             config,
             hooks_config_folder_override.as_ref(),
             decision.is_trusted(),
+            CONFIG_TOML_FILE,
         )
         .await?;
         layers.push(project_layer_entry(
             &dot_codex_abs,
             config,
             disabled_reason.clone(),
-            hooks_config_folder_override,
+            hooks_config_folder_override.clone(),
         ));
 
         let override_file = dot_codex_abs.join(CONFIG_OVERRIDE_TOML_FILE);
@@ -1278,10 +1281,19 @@ async fn load_project_layers(
         )
         .await?
         {
+            let config = merge_root_checkout_project_hooks(
+                fs,
+                config,
+                hooks_config_folder_override.as_ref(),
+                decision.is_trusted(),
+                CONFIG_OVERRIDE_TOML_FILE,
+            )
+            .await?;
             layers.push(project_override_layer_entry(
                 &dot_codex_abs,
                 config,
                 disabled_reason,
+                hooks_config_folder_override,
             ));
         }
     }
@@ -1299,11 +1311,12 @@ async fn merge_root_checkout_project_hooks(
     mut config: TomlValue,
     hooks_config_folder_override: Option<&AbsolutePathBuf>,
     is_trusted: bool,
+    config_file_name: &str,
 ) -> io::Result<TomlValue> {
     let Some(hooks_config_folder) = hooks_config_folder_override else {
         return Ok(config);
     };
-    let hooks_config_file = hooks_config_folder.join(CONFIG_TOML_FILE);
+    let hooks_config_file = hooks_config_folder.join(config_file_name);
     let root_config = match fs
         .read_file_text(&hooks_config_file, /*sandbox*/ None)
         .await
