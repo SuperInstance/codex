@@ -30,6 +30,7 @@ use std::sync::Weak;
 use codex_exec_server::Environment;
 use codex_network_proxy::NetworkProxy;
 use codex_protocol::models::AdditionalPermissionProfile;
+use codex_protocol::models::PermissionProfile;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_output_truncation::TruncationPolicy;
 use rand::Rng;
@@ -96,6 +97,7 @@ pub(crate) struct ExecCommandRequest {
     pub max_output_tokens: Option<usize>,
     pub cwd: AbsolutePathBuf,
     pub sandbox_cwd: AbsolutePathBuf,
+    pub permission_profile: PermissionProfile,
     pub environment: Arc<Environment>,
     pub network: Option<NetworkProxy>,
     pub tty: bool,

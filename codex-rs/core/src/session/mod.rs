@@ -2315,6 +2315,7 @@ impl Session {
                             tx_response,
                             requested_permissions: requested_permissions.clone(),
                             cwd: cwd.clone(),
+                            workspace_mutation: workspace_mutation.is_some(),
                         },
                     )
                 }
@@ -2440,6 +2441,14 @@ impl Session {
         };
         match entry {
             Some(entry) => {
+                let response = if entry.workspace_mutation {
+                    RequestPermissionsResponse {
+                        scope: PermissionGrantScope::Session,
+                        ..response
+                    }
+                } else {
+                    response
+                };
                 let response = Self::normalize_request_permissions_response(
                     entry.requested_permissions,
                     response,

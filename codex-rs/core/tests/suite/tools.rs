@@ -120,6 +120,7 @@ async fn turn_environment_selection_keeps_environment_backed_tools() -> Result<(
         Some(vec![TurnEnvironmentSelection {
             environment_id: "local".to_string(),
             cwd: test.config.cwd.clone(),
+            workspace_roots: Vec::new(),
         }]),
     )
     .await?;

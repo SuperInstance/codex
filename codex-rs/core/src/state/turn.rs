@@ -101,6 +101,7 @@ pub(crate) struct PendingRequestPermissions {
     pub(crate) tx_response: oneshot::Sender<RequestPermissionsResponse>,
     pub(crate) requested_permissions: RequestPermissionProfile,
     pub(crate) cwd: AbsolutePathBuf,
+    pub(crate) workspace_mutation: bool,
 }
 
 impl TurnState {
