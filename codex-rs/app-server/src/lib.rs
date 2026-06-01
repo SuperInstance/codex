@@ -58,6 +58,7 @@ use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_rollout::state_db as rollout_state_db;
 use codex_state::log_db;
+use std::path::Path;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -531,10 +532,7 @@ pub async fn run_main_with_transport_options(
     let state_db = match rollout_state_db::try_init(&config).await {
         Ok(state_db) => Some(state_db),
         Err(err) => {
-            return Err(std::io::Error::other(format!(
-                "failed to initialize sqlite state runtime under {}: {err}",
-                config.sqlite_home.display()
-            )));
+            return Err(state_db_startup_error(config.sqlite_home.as_path(), err));
         }
     };
 
@@ -1092,10 +1090,29 @@ fn analytics_rpc_transport(transport: &AppServerTransport) -> AppServerRpcTransp
     }
 }
 
+fn state_db_startup_error(sqlite_home: &Path, err: anyhow::Error) -> std::io::Error {
+    let mut message = format!(
+        "failed to initialize sqlite state runtime under {}: {err}",
+        sqlite_home.display()
+    );
+    if codex_state::is_migration_error(&err) {
+        message.push_str(
+            "; local SQLite migration history is incompatible with this Codex build. Start Codex CLI and accept its local-data repair prompt, or run `codex doctor` for diagnostics.",
+        );
+    } else {
+        message.push_str(
+            "; Codex Desktop cannot open local threads until SQLite state startup succeeds. Run `codex doctor` for diagnostics.",
+        );
+    }
+    std::io::Error::other(message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::LogFormat;
+    use super::state_db_startup_error;
     use pretty_assertions::assert_eq;
+    use std::path::Path;
 
     #[test]
     fn log_format_from_env_value_matches_json_values_case_insensitively() {
@@ -1113,5 +1130,15 @@ mod tests {
         assert_eq!(LogFormat::from_env_value(Some("")), LogFormat::Default);
         assert_eq!(LogFormat::from_env_value(Some("text")), LogFormat::Default);
         assert_eq!(LogFormat::from_env_value(Some("jsonl")), LogFormat::Default);
+    }
+
+    #[test]
+    fn state_db_startup_error_mentions_doctor_for_other_failures() {
+        let err = anyhow::anyhow!("database is locked");
+
+        let message = state_db_startup_error(Path::new("/tmp/codex"), err).to_string();
+
+        assert!(message.contains("Codex Desktop cannot open local threads"));
+        assert!(message.contains("codex doctor"));
     }
 }

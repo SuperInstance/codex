@@ -154,6 +154,14 @@ fn classify_error(err: &anyhow::Error) -> &'static str {
     "unknown"
 }
 
+pub fn is_migration_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<sqlx::migrate::MigrateError>()
+            .is_some()
+    })
+}
+
 fn classify_sqlx_error(err: &sqlx::Error) -> &'static str {
     match err {
         sqlx::Error::Database(database_error) => {
@@ -199,5 +207,14 @@ mod tests {
         assert_eq!(classify_sqlite_code("5"), "busy");
         assert_eq!(classify_sqlite_code("6"), "locked");
         assert_eq!(classify_sqlite_code("2067"), "constraint");
+    }
+
+    #[test]
+    fn identifies_migration_errors_in_anyhow_chain() {
+        let err = anyhow::Error::new(sqlx::migrate::MigrateError::VersionMismatch(1))
+            .context("startup failed");
+
+        assert!(is_migration_error(&err));
+        assert_eq!(classify_error(&err), "migration");
     }
 }

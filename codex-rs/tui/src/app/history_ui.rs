@@ -132,9 +132,55 @@ fn open_desktop_thread_url(url: &str) -> Result<(), String> {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+fn open_desktop_thread_url(url: &str) -> Result<(), String> {
+    let output = std::process::Command::new("powershell.exe")
+        .arg("-NoProfile")
+        .arg("-Command")
+        .arg("(Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue).InstallLocation")
+        .output()
+        .map_err(|err| format!("failed to locate Codex Desktop package: {err}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "failed to locate Codex Desktop package with {}",
+            output.status
+        ));
+    }
+
+    let install_location = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if install_location.is_empty() {
+        return Err("Codex Desktop package is not installed".to_string());
+    }
+
+    let app_dir = std::path::PathBuf::from(install_location).join("app");
+    let exe = app_dir.join("Codex.exe");
+    let app = app_dir.join("resources").join("app.asar");
+    if !exe.exists() {
+        return Err(format!(
+            "Codex Desktop executable not found at {}",
+            exe.display()
+        ));
+    }
+    if !app.exists() {
+        return Err(format!(
+            "Codex Desktop app bundle not found at {}",
+            app.display()
+        ));
+    }
+
+    std::process::Command::new(&exe)
+        .current_dir(&app_dir)
+        .arg(&app)
+        .arg(url)
+        .spawn()
+        .map_err(|err| format!("failed to launch Codex Desktop at {}: {err}", exe.display()))?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn open_desktop_thread_url(_url: &str) -> Result<(), String> {
-    Err("Codex Desktop session handoff is only available on macOS".to_string())
+    Err("Codex Desktop is only available on macOS and Windows".to_string())
 }
 
 #[cfg(test)]
