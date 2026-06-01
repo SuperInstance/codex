@@ -24,8 +24,8 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Starts a best-effort background job that compresses cold local rollout files.
 ///
 /// The worker is fire-and-forget: failures are logged, startup is not blocked,
-/// and a process-wide lock under `codex_home` prevents overlapping compression
-/// runs from the same local store.
+/// and a run marker under `codex_home` prevents overlapping or too-frequent
+/// compression runs from the same local store.
 pub fn spawn_rollout_compression_worker(codex_home: PathBuf) {
     worker::spawn(codex_home)
 }
@@ -235,6 +235,8 @@ mod worker {
     use tracing::info;
     use tracing::warn;
 
+    use tokio::task::JoinSet;
+
     use crate::ARCHIVED_SESSIONS_SUBDIR;
     use crate::SESSIONS_SUBDIR;
 
@@ -244,10 +246,11 @@ mod worker {
     const TEMP_SUFFIX: &str = ".tmp";
     const COMPRESSION_LEVEL: i32 = 3;
     const MIN_ROLLOUT_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
-    const GLOBAL_LOCK_STALE_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
-    const TEMP_FILE_STALE_AFTER: Duration = GLOBAL_LOCK_STALE_AFTER;
+    const RUN_MARKER_STALE_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
+    const TEMP_FILE_STALE_AFTER: Duration = RUN_MARKER_STALE_AFTER;
     const WORKER_MAX_RUNTIME: Duration = Duration::from_secs(5 * 60 * 60);
-    const LOCK_FILE_NAME: &str = "rollout-compression.lock";
+    const RUN_MARKER_FILE_NAME: &str = "rollout-compression.lock";
+    const MAX_CONCURRENT_COMPRESSION_JOBS: usize = 2;
 
     #[derive(Default)]
     struct CompressionStats {
@@ -257,17 +260,18 @@ mod worker {
         failed: usize,
     }
 
-    struct CompressionLock {
+    pub(super) struct CompressionRunMarker {
         path: PathBuf,
+        remove_on_drop: bool,
     }
 
-    impl CompressionLock {
-        fn try_acquire(codex_home: &Path) -> io::Result<Option<Self>> {
-            let lock_dir = codex_home.join(".tmp");
-            std::fs::create_dir_all(lock_dir.as_path())?;
-            let path = lock_dir.join(LOCK_FILE_NAME);
-            match create_lock_file(path.as_path()) {
-                Ok(()) => return Ok(Some(Self { path })),
+    impl CompressionRunMarker {
+        pub(super) fn try_claim(codex_home: &Path) -> io::Result<Option<Self>> {
+            let marker_dir = codex_home.join(".tmp");
+            std::fs::create_dir_all(marker_dir.as_path())?;
+            let path = marker_dir.join(RUN_MARKER_FILE_NAME);
+            match create_run_marker_file(path.as_path()) {
+                Ok(()) => return Ok(Some(Self::new(path))),
                 Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
                 Err(err) => return Err(err),
             }
@@ -276,7 +280,7 @@ mod worker {
                 .and_then(|metadata| metadata.modified())
                 .ok()
                 .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-                .is_some_and(|age| age >= GLOBAL_LOCK_STALE_AFTER);
+                .is_some_and(|age| age >= RUN_MARKER_STALE_AFTER);
             if !stale {
                 return Ok(None);
             }
@@ -285,17 +289,30 @@ mod worker {
                 Err(err) if err.kind() == io::ErrorKind::NotFound => {}
                 Err(err) => return Err(err),
             }
-            match create_lock_file(path.as_path()) {
-                Ok(()) => Ok(Some(Self { path })),
+            match create_run_marker_file(path.as_path()) {
+                Ok(()) => Ok(Some(Self::new(path))),
                 Err(err) if err.kind() == io::ErrorKind::AlreadyExists => Ok(None),
                 Err(err) => Err(err),
             }
         }
+
+        fn new(path: PathBuf) -> Self {
+            Self {
+                path,
+                remove_on_drop: true,
+            }
+        }
+
+        pub(super) fn persist(mut self) {
+            self.remove_on_drop = false;
+        }
     }
 
-    impl Drop for CompressionLock {
+    impl Drop for CompressionRunMarker {
         fn drop(&mut self) {
-            let _ = std::fs::remove_file(self.path.as_path());
+            if self.remove_on_drop {
+                let _ = std::fs::remove_file(self.path.as_path());
+            }
         }
     }
 
@@ -318,9 +335,9 @@ mod worker {
     }
 
     pub(super) async fn run(codex_home: PathBuf) -> io::Result<()> {
-        let Some(_lock) = CompressionLock::try_acquire(codex_home.as_path())? else {
+        let Some(marker) = CompressionRunMarker::try_claim(codex_home.as_path())? else {
             debug!(
-                "rollout compression worker already running for {}",
+                "rollout compression worker recently ran or is already running for {}",
                 codex_home.display()
             );
             return Ok(());
@@ -337,10 +354,11 @@ mod worker {
             "rollout compression worker finished: scanned={}, compressed={}, skipped={}, failed={}",
             stats.scanned, stats.compressed, stats.skipped, stats.failed
         );
+        marker.persist();
         Ok(())
     }
 
-    fn create_lock_file(path: &Path) -> io::Result<()> {
+    fn create_run_marker_file(path: &Path) -> io::Result<()> {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -363,6 +381,7 @@ mod worker {
             return Ok(());
         }
         let mut stack = vec![root.to_path_buf()];
+        let mut jobs = JoinSet::new();
         while let Some(dir) = stack.pop() {
             if started_at.elapsed() >= WORKER_MAX_RUNTIME {
                 break;
@@ -377,7 +396,15 @@ mod worker {
                     continue;
                 }
             };
-            while let Some(entry) = read_dir.next_entry().await? {
+            loop {
+                let entry = match read_dir.next_entry().await {
+                    Ok(Some(entry)) => entry,
+                    Ok(None) => break,
+                    Err(err) => {
+                        drain_compression_jobs(&mut jobs, stats).await;
+                        return Err(err);
+                    }
+                };
                 if started_at.elapsed() >= WORKER_MAX_RUNTIME {
                     break;
                 }
@@ -407,24 +434,49 @@ mod worker {
                 }
                 let path = rollout_file.into_path();
                 stats.scanned = stats.scanned.saturating_add(1);
-                match compress_rollout_if_cold(path.as_path()).await {
-                    Ok(true) => stats.compressed = stats.compressed.saturating_add(1),
-                    Ok(false) => stats.skipped = stats.skipped.saturating_add(1),
-                    Err(err) => {
-                        stats.failed = stats.failed.saturating_add(1);
-                        warn!("failed to compress rollout {}: {err}", path.display());
-                    }
+                while jobs.len() >= MAX_CONCURRENT_COMPRESSION_JOBS {
+                    collect_next_compression_job(&mut jobs, stats).await;
                 }
+                jobs.spawn_blocking(move || {
+                    let result = compress_rollout_if_cold_blocking(path.as_path());
+                    (path, result)
+                });
             }
         }
+        drain_compression_jobs(&mut jobs, stats).await;
         Ok(())
     }
 
-    async fn compress_rollout_if_cold(path: &Path) -> io::Result<bool> {
-        let path = path.to_path_buf();
-        tokio::task::spawn_blocking(move || compress_rollout_if_cold_blocking(path.as_path()))
-            .await
-            .map_err(io::Error::other)?
+    type CompressionJobResult = (PathBuf, io::Result<bool>);
+
+    async fn drain_compression_jobs(
+        jobs: &mut JoinSet<CompressionJobResult>,
+        stats: &mut CompressionStats,
+    ) {
+        while !jobs.is_empty() {
+            collect_next_compression_job(jobs, stats).await;
+        }
+    }
+
+    async fn collect_next_compression_job(
+        jobs: &mut JoinSet<CompressionJobResult>,
+        stats: &mut CompressionStats,
+    ) {
+        let Some(result) = jobs.join_next().await else {
+            return;
+        };
+        match result {
+            Ok((_, Ok(true))) => stats.compressed = stats.compressed.saturating_add(1),
+            Ok((_, Ok(false))) => stats.skipped = stats.skipped.saturating_add(1),
+            Ok((path, Err(err))) => {
+                stats.failed = stats.failed.saturating_add(1);
+                warn!("failed to compress rollout {}: {err}", path.display());
+            }
+            Err(err) => {
+                stats.failed = stats.failed.saturating_add(1);
+                warn!("rollout compression task failed: {err}");
+            }
+        }
     }
 
     fn compress_rollout_if_cold_blocking(path: &Path) -> io::Result<bool> {
