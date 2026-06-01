@@ -1318,7 +1318,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<String> {
         | EventMsg::RealtimeConversationClosed(_)
         | EventMsg::ModelReroute(_)
         | EventMsg::ModelVerification(_)
-        | EventMsg::TurnProtectionResult(_)
+        | EventMsg::TurnModerationMetadata(_)
         | EventMsg::ContextCompacted(_)
         | EventMsg::ThreadRolledBack(_)
         | EventMsg::TurnStarted(_)
@@ -1984,8 +1984,8 @@ async fn try_run_sampling_request(
                         .await;
                 }
             }
-            ResponseEvent::TurnProtectionResult(result) => {
-                sess.emit_turn_protection_result(&turn_context, result)
+            ResponseEvent::TurnModerationMetadata(metadata) => {
+                sess.emit_turn_moderation_metadata(&turn_context, metadata)
                     .await;
             }
             ResponseEvent::ServerReasoningIncluded(included) => {

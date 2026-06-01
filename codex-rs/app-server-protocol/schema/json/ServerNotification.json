@@ -2655,28 +2655,6 @@
         }
       ]
     },
-    "ProtectionClassifierResult": {
-      "properties": {
-        "labels": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "modapiScores": {
-          "additionalProperties": {
-            "format": "double",
-            "type": "number"
-          },
-          "type": "object"
-        }
-      },
-      "required": [
-        "labels",
-        "modapiScores"
-      ],
-      "type": "object"
-    },
     "RateLimitReachedType": {
       "enum": [
         "rate_limit_reached",
@@ -4902,6 +4880,23 @@
         }
       ]
     },
+    "TurnModerationMetadataNotification": {
+      "properties": {
+        "metadata": true,
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "metadata",
+        "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
     "TurnPlanStep": {
       "properties": {
         "status": {
@@ -4950,25 +4945,6 @@
         "plan",
         "threadId",
         "turnId"
-      ],
-      "type": "object"
-    },
-    "TurnProtectionResultNotification": {
-      "properties": {
-        "threadId": {
-          "type": "string"
-        },
-        "turnId": {
-          "type": "string"
-        },
-        "wellbeing": {
-          "$ref": "#/definitions/WellbeingProtectionResult"
-        }
-      },
-      "required": [
-        "threadId",
-        "turnId",
-        "wellbeing"
       ],
       "type": "object"
     },
@@ -5257,21 +5233,6 @@
           "type": "object"
         }
       ]
-    },
-    "WellbeingProtectionResult": {
-      "properties": {
-        "generation": {
-          "$ref": "#/definitions/ProtectionClassifierResult"
-        },
-        "prompt": {
-          "$ref": "#/definitions/ProtectionClassifierResult"
-        }
-      },
-      "required": [
-        "generation",
-        "prompt"
-      ],
-      "type": "object"
     },
     "WindowsSandboxSetupCompletedNotification": {
       "properties": {
@@ -6279,20 +6240,20 @@
       "properties": {
         "method": {
           "enum": [
-            "turn/protectionResult"
+            "turn/moderationMetadata"
           ],
-          "title": "Turn/protectionResultNotificationMethod",
+          "title": "Turn/moderationMetadataNotificationMethod",
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/TurnProtectionResultNotification"
+          "$ref": "#/definitions/TurnModerationMetadataNotification"
         }
       },
       "required": [
         "method",
         "params"
       ],
-      "title": "Turn/protectionResultNotification",
+      "title": "Turn/moderationMetadataNotification",
       "type": "object"
     },
     {
