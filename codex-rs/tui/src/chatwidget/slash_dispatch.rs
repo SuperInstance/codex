@@ -202,6 +202,16 @@ impl ChatWidget {
             SlashCommand::Fork => {
                 self.app_event_tx.send(AppEvent::ForkCurrentSession);
             }
+            SlashCommand::Teleport => {
+                if let Some(thread_id) = self.thread_id {
+                    self.app_event_tx
+                        .send(AppEvent::TeleportToDesktop { thread_id });
+                } else {
+                    self.add_error_message(
+                        "Session is still starting; try /teleport again in a moment.".to_string(),
+                    );
+                }
+            }
             SlashCommand::Init => {
                 let init_target = self.config.cwd.join(DEFAULT_AGENTS_MD_FILENAME);
                 if init_target.exists() {
@@ -974,6 +984,7 @@ impl ChatWidget {
             | SlashCommand::Raw
             | SlashCommand::Vim
             | SlashCommand::Diff
+            | SlashCommand::Teleport
             | SlashCommand::Rename
             | SlashCommand::TestApproval => QueueDrain::Continue,
             SlashCommand::Feedback

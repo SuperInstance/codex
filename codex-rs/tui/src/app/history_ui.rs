@@ -1,4 +1,4 @@
-//! Terminal history and clear-screen UI helpers for the TUI app.
+//! Terminal history, desktop handoff, and clear-screen UI helpers for the TUI app.
 //!
 //! This module owns rendering the fresh session header, clearing inline or alternate-screen UI
 //! state, and resetting transcript-related app state after `/clear` or Ctrl-L.
@@ -15,6 +15,20 @@ impl App {
 
         self.chat_widget
             .add_info_message(format!("Opened {url} in your browser."), /*hint*/ None);
+    }
+
+    pub(super) fn teleport_to_desktop(&mut self, thread_id: ThreadId) {
+        if let Err(err) = open_desktop_thread_url(&desktop_thread_url(thread_id)) {
+            self.chat_widget.add_error_message(format!(
+                "Failed to open this session in Codex Desktop: {err}. Install or launch Codex Desktop with `codex app` and try again."
+            ));
+            return;
+        }
+
+        self.chat_widget.add_info_message(
+            "Opened this session in Codex Desktop.".to_string(),
+            /*hint*/ None,
+        );
     }
 
     pub(super) fn clear_ui_header_lines_with_version(
@@ -97,5 +111,60 @@ impl App {
         self.initial_history_replay_buffer = None;
         self.backtrack = BacktrackState::default();
         self.backtrack_render_pending = false;
+    }
+}
+
+fn desktop_thread_url(thread_id: ThreadId) -> String {
+    format!("codex://threads/{thread_id}")
+}
+
+#[cfg(target_os = "macos")]
+fn open_desktop_thread_url(url: &str) -> Result<(), String> {
+    let status = std::process::Command::new("open")
+        .arg(url)
+        .status()
+        .map_err(|err| format!("failed to invoke `open`: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("`open {url}` exited with {status}"))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn open_desktop_thread_url(url: &str) -> Result<(), String> {
+    let status = std::process::Command::new("powershell.exe")
+        .arg("-NoProfile")
+        .arg("-Command")
+        .arg("& { param($target) Start-Process -FilePath $target }")
+        .arg(url)
+        .status()
+        .map_err(|err| format!("failed to open {url}: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("failed to open {url} with {status}"))
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn open_desktop_thread_url(_url: &str) -> Result<(), String> {
+    Err("Codex Desktop is only available on macOS and Windows".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_thread_url_targets_codex_threads_deep_link() {
+        let thread_id = ThreadId::new();
+
+        assert_eq!(
+            desktop_thread_url(thread_id),
+            format!("codex://threads/{thread_id}")
+        );
     }
 }
