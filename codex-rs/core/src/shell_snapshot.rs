@@ -33,7 +33,7 @@ pub struct ShellSnapshot {
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(10);
 const SNAPSHOT_RETENTION: Duration = Duration::from_secs(60 * 60 * 24 * 3); // 3 days retention.
 const SNAPSHOT_DIR: &str = "shell_snapshots";
-const EXCLUDED_EXPORT_VARS: &[&str] = &["PWD", "OLDPWD"];
+const EXCLUDED_EXPORT_VARS: &[&str] = &["PWD", "OLDPWD", "RUST_LOG"];
 
 impl ShellSnapshot {
     pub fn start_snapshotting(
