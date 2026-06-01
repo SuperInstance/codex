@@ -4,6 +4,7 @@ use crate::types::ConfigFileResponse;
 use crate::types::PaginatedListTaskListItem;
 use crate::types::RateLimitReachedKind as BackendRateLimitReachedKind;
 use crate::types::RateLimitStatusPayload;
+use crate::types::SwitchWorkspaceTokenResponse;
 use crate::types::TurnAttemptsSiblingTurnsResponse;
 use anyhow::Result;
 use codex_api::SharedAuthProvider;
@@ -94,6 +95,11 @@ pub enum AddCreditsNudgeCreditType {
 #[derive(Serialize)]
 struct SendAddCreditsNudgeEmailRequest {
     credit_type: AddCreditsNudgeCreditType,
+}
+
+#[derive(Serialize)]
+struct SwitchWorkspaceTokenRequest<'a> {
+    workspace_id: &'a str,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -309,6 +315,21 @@ impl Client {
         };
         let req = self.http.get(&url).headers(self.headers());
         let (body, ct) = self.exec_request(req, "GET", &url).await?;
+        self.decode_json(&url, &ct, &body)
+    }
+
+    pub async fn switch_workspace_token(
+        &self,
+        workspace_id: &str,
+    ) -> Result<SwitchWorkspaceTokenResponse> {
+        let url = format!("{}/accounts/switch-workspace-token", self.base_url);
+        let req = self
+            .http
+            .post(&url)
+            .headers(self.headers())
+            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+            .json(&SwitchWorkspaceTokenRequest { workspace_id });
+        let (body, ct) = self.exec_request(req, "POST", &url).await?;
         self.decode_json(&url, &ct, &body)
     }
 
