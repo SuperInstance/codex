@@ -331,7 +331,7 @@ pub(crate) enum AppEvent {
     },
 
     /// Open the current thread in Codex Desktop.
-    TeleportToDesktop {
+    OpenDesktopThread {
         thread_id: ThreadId,
     },
 

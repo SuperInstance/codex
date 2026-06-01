@@ -17,7 +17,7 @@ impl App {
             .add_info_message(format!("Opened {url} in your browser."), /*hint*/ None);
     }
 
-    pub(super) fn teleport_to_desktop(&mut self, thread_id: ThreadId) {
+    pub(super) fn open_desktop_thread(&mut self, thread_id: ThreadId) {
         if let Err(err) = open_desktop_thread_url(&desktop_thread_url(thread_id)) {
             self.chat_widget.add_error_message(format!(
                 "Failed to open this session in Codex Desktop: {err}. Install or launch Codex Desktop with `codex app` and try again."

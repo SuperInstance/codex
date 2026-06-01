@@ -3,7 +3,7 @@ source: tui/src/bottom_pane/chat_composer.rs
 expression: terminal.backend()
 ---
 "                                                                        "
-"› /tel                                                                  "
+"› /app                                                                  "
 "                                                                        "
-"                                                                        "
-"  /teleport  continue this session in Codex Desktop                     "
+"  /app      continue this session in Codex Desktop                      "
+"  /approve  approve one retry of a recent auto-review denial            "

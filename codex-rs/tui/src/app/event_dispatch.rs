@@ -403,8 +403,8 @@ impl App {
             AppEvent::OpenUrlInBrowser { url } => {
                 self.open_url_in_browser(url);
             }
-            AppEvent::TeleportToDesktop { thread_id } => {
-                self.teleport_to_desktop(thread_id);
+            AppEvent::OpenDesktopThread { thread_id } => {
+                self.open_desktop_thread(thread_id);
             }
             AppEvent::PetSelected { pet_id } => {
                 self.handle_pet_selected(tui, pet_id);

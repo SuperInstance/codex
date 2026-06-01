@@ -7913,7 +7913,7 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
-    fn slash_popup_teleport_for_tel_ui() {
+    fn slash_popup_app_ui() {
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
 
@@ -7928,7 +7928,7 @@ mod tests {
             /*disable_paste_burst*/ false,
         );
 
-        type_chars_humanlike(&mut composer, &['/', 't', 'e', 'l']);
+        type_chars_humanlike(&mut composer, &['/', 'a', 'p', 'p']);
 
         let mut terminal =
             Terminal::new(TestBackend::new(/*width*/ 72, /*height*/ 5)).expect("terminal");
@@ -7936,12 +7936,12 @@ mod tests {
             .draw(|f| composer.render(f.area(), f.buffer_mut()))
             .expect("draw composer");
 
-        insta::assert_snapshot!("slash_popup_tel", terminal.backend());
+        insta::assert_snapshot!("slash_popup_app", terminal.backend());
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
-    fn slash_popup_teleport_for_tel_logic() {
+    fn slash_popup_app_logic() {
         use super::super::command_popup::CommandItem;
         let (tx, _rx) = unbounded_channel::<AppEvent>();
         let sender = AppEventSender::new(tx);
@@ -7952,19 +7952,19 @@ mod tests {
             "Ask Codex to do anything".to_string(),
             /*disable_paste_burst*/ false,
         );
-        type_chars_humanlike(&mut composer, &['/', 't', 'e', 'l']);
+        type_chars_humanlike(&mut composer, &['/', 'a', 'p', 'p']);
 
         match &composer.popups.active {
             ActivePopup::Command(popup) => match popup.selected_item() {
                 Some(CommandItem::Builtin(cmd)) => {
-                    assert_eq!(cmd.command(), "teleport")
+                    assert_eq!(cmd.command(), "app")
                 }
                 Some(CommandItem::ServiceTier(command)) => {
-                    panic!("expected teleport command, got service tier {command:?}")
+                    panic!("expected app command, got service tier {command:?}")
                 }
-                None => panic!("no selected command for '/tel'"),
+                None => panic!("no selected command for '/app'"),
             },
-            _ => panic!("slash popup not active after typing '/tel'"),
+            _ => panic!("slash popup not active after typing '/app'"),
         }
     }
 
