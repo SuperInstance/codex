@@ -130,12 +130,6 @@
           "format": "int64",
           "type": "integer"
         },
-        "plan": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "selectedWorkspaceAccountId": {
           "type": [
             "string",
@@ -192,14 +186,10 @@
             "string",
             "null"
           ]
-        },
-        "status": {
-          "$ref": "#/definitions/AccountSessionWorkspaceStatus"
         }
       },
       "required": [
-        "accountId",
-        "status"
+        "accountId"
       ],
       "type": "object"
     },
@@ -207,14 +197,6 @@
       "enum": [
         "personal",
         "workspace"
-      ],
-      "type": "string"
-    },
-    "AccountSessionWorkspaceStatus": {
-      "enum": [
-        "active",
-        "disabled",
-        "deactivated"
       ],
       "type": "string"
     },
