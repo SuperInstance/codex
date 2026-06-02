@@ -7,6 +7,8 @@ use codex_protocol::protocol::RateLimitReachedType as CoreRateLimitReachedType;
 use codex_protocol::protocol::RateLimitSnapshot as CoreRateLimitSnapshot;
 use codex_protocol::protocol::RateLimitWindow as CoreRateLimitWindow;
 use schemars::JsonSchema;
+use schemars::SchemaGenerator;
+use schemars::schema::Schema;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -24,6 +26,7 @@ pub enum Account {
     #[serde(rename = "chatgpt", rename_all = "camelCase")]
     #[ts(rename = "chatgpt", rename_all = "camelCase")]
     Chatgpt {
+        #[schemars(schema_with = "nullable_string_schema")]
         email: Option<String>,
         plan_type: PlanType,
     },
@@ -31,6 +34,10 @@ pub enum Account {
     #[serde(rename = "amazonBedrock", rename_all = "camelCase")]
     #[ts(rename = "amazonBedrock", rename_all = "camelCase")]
     AmazonBedrock {},
+}
+
+fn nullable_string_schema(generator: &mut SchemaGenerator) -> Schema {
+    generator.subschema_for::<Option<String>>()
 }
 
 impl From<ProviderAccount> for Account {
