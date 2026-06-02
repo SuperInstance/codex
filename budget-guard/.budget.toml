@@ -1,0 +1,30 @@
+# Budget Guard Configuration
+# Cost thresholds for automatic model throttling.
+
+[daily]
+limit = 10.00          # USD — switch to economy model at 85%
+
+[weekly]
+limit = 50.00          # USD
+
+[monthly]
+limit = 200.00         # USD
+
+[models]
+# Primary model for full-quality work
+primary = "gpt-4o"
+# Throttled model used when approaching budget limits
+economy  = "gpt-4o-mini"
+
+[throttle]
+# Percentage of budget that triggers auto-throttle (0.0 - 1.0)
+trigger_at = 0.85
+
+# Cooldown period in hours before re-checking primary model
+cooldown_hours = 2
+
+[logging]
+# Where spend logs are written
+spend_log = ".codex/budget-spend.jsonl"
+# Include per-command cost breakdown in logs
+verbose = true
